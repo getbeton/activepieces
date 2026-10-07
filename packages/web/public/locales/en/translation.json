@@ -3453,5 +3453,7 @@
   "last day": "last day",
   "Dedicated workers are locked. Your automations run on shared workers.": "Dedicated workers are locked. Your automations run on shared workers.",
   "Contact sales to unlock pinning pieces": "Contact sales to unlock pinning pieces",
-  "Adding or changing AI keys is locked.": "Adding or changing AI keys is locked."
+  "Adding or changing AI keys is locked.": "Adding or changing AI keys is locked.",
+  "Your Enterprise plan trial has ended, and the {plan} plan includes {target, plural, =1 {1 seat} other {# seats}}. Choose who to deactivate to continue.": "Your Enterprise plan trial has ended, and the {plan} plan includes {target, plural, =1 {1 seat} other {# seats}}. Choose who to deactivate to continue.",
+  "Only the platform owner can choose who keeps a seat on the {plan} plan. Ask them to sign in, or upgrade to add seats.": "Only the platform owner can choose who keeps a seat on the {plan} plan. Ask them to sign in, or upgrade to add seats."
 }
