@@ -3281,5 +3281,7 @@
   "1 min ago": "1 min ago",
   "{count} mins ago": "{count} mins ago",
   "1 hour ago": "1 hour ago",
-  "{count} hours ago": "{count} hours ago"
+  "{count} hours ago": "{count} hours ago",
+  "Your change was not saved": "Your change was not saved",
+  "The builder now shows the last saved version of the flow.": "The builder now shows the last saved version of the flow."
 }
