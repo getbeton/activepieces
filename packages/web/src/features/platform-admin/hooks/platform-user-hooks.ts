@@ -17,17 +17,14 @@ import { userHooks } from '@/hooks/user-hooks';
 
 export const platformUserKeys = {
   users: ['users'] as const,
+  allUsers: ['users', 'all'] as const,
   invitations: ['platform-invitations'] as const,
   invitesReservingSeats: ['platform-invitations', 'reserving-seats'] as const,
 };
 
 export const platformUserHooks = {
   useUsers: () => {
-    const { data: currentUser } = userHooks.useCurrentUser();
-    const { checkAccess, isFetchingProjectRole } = useAuthorization();
-    const hasInvitePermission = checkAccess(Permission.WRITE_INVITATION);
-    const canListUsers =
-      !isNil(currentUser) && hasInvitePermission && !isFetchingProjectRole;
+    const canListUsers = useCanListUsers();
     return useQuery<SeekPage<UserWithMetaInformation>, Error>({
       queryKey: platformUserKeys.users,
       queryFn: async () => {
@@ -36,6 +33,18 @@ export const platformUserHooks = {
         });
         return results;
       },
+      enabled: canListUsers,
+    });
+  },
+  useAllUsers: () => {
+    const canListUsers = useCanListUsers();
+    return useQuery({
+      queryKey: platformUserKeys.allUsers,
+      queryFn: () =>
+        fetchAllPages({
+          fetchPage: (cursor) =>
+            platformUserApi.list({ cursor, limit: PAGE_SIZE }),
+        }),
       enabled: canListUsers,
     });
   },
@@ -57,7 +66,11 @@ export const platformUserHooks = {
   },
   useInvitesReservingSeats: () => {
     return useQuery({
-      queryFn: userInvitationApi.listReservingSeats,
+      queryFn: () =>
+        fetchAllPages({
+          fetchPage: (cursor) =>
+            userInvitationApi.listReservingSeats({ cursor, limit: PAGE_SIZE }),
+        }),
       queryKey: platformUserKeys.invitesReservingSeats,
       staleTime: 0,
     });
@@ -126,4 +139,32 @@ export const platformUserMutations = {
       onSuccess,
     });
   },
+};
+
+function useCanListUsers(): boolean {
+  const { data: currentUser } = userHooks.useCurrentUser();
+  const { checkAccess, isFetchingProjectRole } = useAuthorization();
+  const hasInvitePermission = checkAccess(Permission.WRITE_INVITATION);
+  return !isNil(currentUser) && hasInvitePermission && !isFetchingProjectRole;
+}
+
+async function fetchAllPages<T>({
+  fetchPage,
+  cursor,
+}: FetchAllPagesParams<T>): Promise<T[]> {
+  const page = await fetchPage(cursor);
+  if (isNil(page.next)) {
+    return page.data;
+  }
+  return [
+    ...page.data,
+    ...(await fetchAllPages({ fetchPage, cursor: page.next })),
+  ];
+}
+
+const PAGE_SIZE = 2000;
+
+type FetchAllPagesParams<T> = {
+  fetchPage: (cursor: string | undefined) => Promise<SeekPage<T>>;
+  cursor?: string;
 };
