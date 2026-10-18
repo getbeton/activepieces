@@ -327,7 +327,7 @@ async function openNewestVersionForEdit({
   }
   if (showsNewestVersion()) {
     const applied = await refreshDraft();
-    if (applied) {
+    if (applied && store.getState().showsNewestVersion()) {
       store.getState().setReadOnly(!canEditFlow);
     }
     return;
