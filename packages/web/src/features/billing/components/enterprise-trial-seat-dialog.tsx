@@ -81,10 +81,7 @@ export function EnterpriseTrialSeatDialog() {
         excludeUserId: authenticationSession.getCurrentUserId(),
         actions: (
           <>
-            <EnterpriseTrialSalesLink
-              surface="enterprise_trial_seats"
-              label={t('Talk to sales')}
-            />
+            <EnterpriseTrialSalesLink surface="enterprise_trial_seats" />
             <Button
               {...adminControl(AdminControl.TRIAL_PLANS_OPEN)}
               type="button"
