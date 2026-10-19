@@ -5,6 +5,7 @@ import { t } from 'i18next';
 import { ReactNode, useState } from 'react';
 
 import { platformUserApi } from '@/api/platform-user-api';
+import { DataFetchErrorState } from '@/components/custom/data-fetch-error-state';
 import { TextWithTooltip } from '@/components/custom/text-with-tooltip';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -79,10 +80,13 @@ function DeactivateUsersForm({
   onOpenChange,
 }: DeactivateUsersFormProps) {
   const { platform } = platformHooks.useCurrentPlatform();
-  const { data: users } = platformUserHooks.useAllUsers({
+  const usersQuery = platformUserHooks.useAllUsers({
     excludeEmbedded: hideEmbeddedUsers,
   });
-  const { data: invitations } = platformUserHooks.useInvitesReservingSeats();
+  const invitationsQuery = platformUserHooks.useInvitesReservingSeats();
+  const users = usersQuery.data;
+  const invitations = invitationsQuery.data;
+  const listsFailed = usersQuery.isError || invitationsQuery.isError;
   const queryClient = useQueryClient();
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(
     () => new Set(preselectedUserIds),
@@ -165,29 +169,41 @@ function DeactivateUsersForm({
         </DialogDescription>
       </DialogHeader>
 
-      <SeatChoices
-        users={deactivatableUsers.map((user) => ({
-          id: user.id,
-          email: user.email,
-          trailingLabel:
-            preselectedUserIds.includes(user.id) && !isNil(preselectedLabel)
-              ? preselectedLabel
-              : roleLabel(user.platformRole),
-        }))}
-        invitations={invitedEmails.map(({ email }) => ({
-          id: email,
-          email,
-          trailingLabel: t('Invited'),
-        }))}
-        selectedUserIds={selectedUserIds}
-        selectedEmails={selectedEmails}
-        onToggleUser={toggleUser}
-        onToggleEmail={toggleEmail}
-        seatsAfter={seatsAfter}
-        targetSeats={targetSeats}
-        withinLimit={withinLimit}
-        warning={warning}
-      />
+      {listsFailed ? (
+        <DataFetchErrorState
+          entity={t('users')}
+          onRetry={async () => {
+            await Promise.all([
+              usersQuery.refetch(),
+              invitationsQuery.refetch(),
+            ]);
+          }}
+        />
+      ) : (
+        <SeatChoices
+          users={deactivatableUsers.map((user) => ({
+            id: user.id,
+            email: user.email,
+            trailingLabel:
+              preselectedUserIds.includes(user.id) && !isNil(preselectedLabel)
+                ? preselectedLabel
+                : roleLabel(user.platformRole),
+          }))}
+          invitations={invitedEmails.map(({ email }) => ({
+            id: email,
+            email,
+            trailingLabel: t('Invited'),
+          }))}
+          selectedUserIds={selectedUserIds}
+          selectedEmails={selectedEmails}
+          onToggleUser={toggleUser}
+          onToggleEmail={toggleEmail}
+          seatsAfter={seatsAfter}
+          targetSeats={targetSeats}
+          withinLimit={withinLimit}
+          warning={warning}
+        />
+      )}
 
       <DialogFooter>
         {actions}
@@ -203,7 +219,7 @@ function DeactivateUsersForm({
           {...adminControl(AdminControl.BILLING_DEACTIVATE_USERS_SUBMIT)}
           type="button"
           loading={isPending}
-          disabled={!withinLimit}
+          disabled={!withinLimit || listsFailed}
           onClick={() => deactivateAndContinue()}
         >
           {emailsToRevoke.length > 0 && usersToDeactivate.length === 0

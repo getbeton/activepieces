@@ -14,7 +14,6 @@ import { billingDialogHooks } from '../hooks/billing-dialog-hooks';
 import { billingQueries, refreshBillingCaches } from '../hooks/billing-hooks';
 import { enterpriseTrialHooks } from '../hooks/enterprise-trial-hooks';
 import { useUpgradeClick } from '../hooks/use-upgrade-click';
-import { billingUtils } from '../utils/billing-utils';
 import { trialSeatEnforcement } from '../utils/trial-seat-enforcement';
 
 import { DeactivateUsersDialog } from './feature-usage/deactivate-users-dialog';
@@ -56,10 +55,7 @@ export function EnterpriseTrialSeatDialog() {
   if (isNil(grace) || isNil(info) || isNil(seatGrace)) {
     return null;
   }
-  const seatLimit = billingUtils.resolveSeatCap(info).effectiveLimit;
-  if (isNil(seatLimit)) {
-    return null;
-  }
+  const seatLimit = seatGrace.seatLimit;
   const date = dayjs(grace.endsAt).format('MMM D');
 
   return (

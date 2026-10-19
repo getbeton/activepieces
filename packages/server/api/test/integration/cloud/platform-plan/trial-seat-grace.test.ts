@@ -42,7 +42,22 @@ describe('Seat grace after the Enterprise trial', () => {
         expect(dayjs(plan.seatGraceTrialStartedAt).toISOString()).toBe(TRIAL_STARTED_AT)
         expect(await trialSeatGrace(log).get({ plan, billingEnforced: true })).toEqual({
             usedSeats: 5,
+            seatLimit: 3,
             userIds: [trialUsers[2].id, trialUsers[1].id],
+        })
+    })
+
+    it('counts against the seats the plan has now, not a scheduled downgrade', async () => {
+        const { platformId, trialUsers } = await setupPlatform({ usersLimit: 3, trialUsers: 3 })
+        await platformPlanRepo().update({ platformId }, { scheduledUsersLimit: 1 })
+
+        await endTrial({ platformId, billingEnforced: true })
+
+        const plan = await platformPlanRepo().findOneByOrFail({ platformId })
+        expect(await trialSeatGrace(log).get({ plan, billingEnforced: true })).toEqual({
+            usedSeats: 4,
+            seatLimit: 3,
+            userIds: [trialUsers[2].id],
         })
     })
 
@@ -70,6 +85,7 @@ describe('Seat grace after the Enterprise trial', () => {
         const plan = await platformPlanRepo().findOneByOrFail({ platformId })
         expect(await trialSeatGrace(log).get({ plan, billingEnforced: true })).toEqual({
             usedSeats: 3,
+            seatLimit: 2,
             userIds: [trialUsers[1].id],
         })
     })
@@ -101,6 +117,19 @@ describe('Seat grace after the Enterprise trial', () => {
             expect(await statusOf(kept)).toBe(UserStatus.ACTIVE)
         }
         expect((await platformPlanRepo().findOneByOrFail({ platformId })).seatGraceEndsAt).toBeNull()
+    })
+
+    it('counts again at the deadline and deactivates only the users still over the plan', async () => {
+        const { platformId, preTrialUsers, trialUsers } = await setupPlatform({ usersLimit: 3, preTrialUsers: 1, trialUsers: 3 })
+        await endTrial({ platformId, billingEnforced: true })
+        await deactivate([preTrialUsers[0]])
+        await endGraceNow(platformId)
+
+        await trialSeatGrace(log).sweep()
+
+        expect(await statusOf(trialUsers[2])).toBe(UserStatus.INACTIVE)
+        expect(await statusOf(trialUsers[1])).toBe(UserStatus.ACTIVE)
+        expect(await statusOf(trialUsers[0])).toBe(UserStatus.ACTIVE)
     })
 
     it('deactivates nobody when the plan gained seats before the grace ended', async () => {
@@ -143,7 +172,7 @@ describe('Seat grace after the Enterprise trial', () => {
         })
 
         expect(response.statusCode).toBe(StatusCodes.OK)
-        expect(response.json().seatGrace).toEqual({ usedSeats: 5, userIds: [trialUsers[2].id, trialUsers[1].id] })
+        expect(response.json().seatGrace).toEqual({ usedSeats: 5, seatLimit: 3, userIds: [trialUsers[2].id, trialUsers[1].id] })
     })
 
     it('clears the grace when the billing info finds the platform fits again', async () => {
@@ -193,17 +222,14 @@ async function addUsers({ platformId, count, firstDaysAgo, provider = UserIdenti
 
 async function endTrial({ platformId, billingEnforced }: EndTrialParams): Promise<void> {
     const plan = await platformPlanRepo().findOneByOrFail({ platformId })
-    await trialSeatGrace(log).onEntitlementsRefreshed({
-        platformId,
-        previousPlan: { ...plan, enterpriseTrialStartedAt: TRIAL_STARTED_AT },
-        trialEnded: true,
-        billingEnforced,
-    })
+    const seatGrace = await trialSeatGrace(log).startOnTrialEnd({ platformId, seatLimit: plan.usersLimit ?? null, trialStartedAt: TRIAL_STARTED_AT, billingEnforced })
+    if (Object.keys(seatGrace).length > 0) {
+        await platformPlanRepo().update({ platformId }, seatGrace)
+    }
 }
 
 async function refreshWithoutTrialChange({ platformId }: { platformId: string }): Promise<void> {
-    const plan = await platformPlanRepo().findOneByOrFail({ platformId })
-    await trialSeatGrace(log).onEntitlementsRefreshed({ platformId, previousPlan: plan, trialEnded: false, billingEnforced: true })
+    await trialSeatGrace(log).settle({ platformId, billingEnforced: true })
 }
 
 async function endGraceNow(platformId: string): Promise<void> {

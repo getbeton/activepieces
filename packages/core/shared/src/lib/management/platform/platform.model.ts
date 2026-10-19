@@ -295,6 +295,7 @@ export type SeatsBillableFeature = z.infer<typeof SeatsBillableFeature>
 
 export const TrialSeatGrace = z.object({
     usedSeats: z.number(),
+    seatLimit: z.number(),
     userIds: z.array(z.string()),
 })
 export type TrialSeatGrace = z.infer<typeof TrialSeatGrace>

@@ -35,7 +35,10 @@ vi.mock('@/features/platform-admin/hooks/platform-user-hooks', () => ({
   platformUserKeys: { users: ['users'], invitations: ['invitations'] },
   platformUserHooks: {
     useAllUsers: (params: unknown) => allUsers(params),
-    useInvitesReservingSeats: () => ({ data: invitations }),
+    useInvitesReservingSeats: () => ({
+      data: invitations,
+      refetch: () => Promise.resolve(),
+    }),
   },
 }));
 
@@ -132,6 +135,26 @@ beforeEach(() => {
 });
 
 describe('DeactivateUsersDialog preselection', () => {
+  it('shows a retry instead of empty lists when the users cannot load', async () => {
+    const refetch = vi.fn().mockResolvedValue(undefined);
+    allUsers.mockImplementation(() => ({
+      data: undefined,
+      isError: true,
+      refetch,
+    }));
+
+    renderDialog({
+      targetSeats: 1,
+      currentUsers: 3,
+      preselectedUserIds: ['a'],
+    });
+
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+    expect(submitButton().disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(refetch).toHaveBeenCalled());
+  });
+
   it('asks for the users without the embedded ones when told to hide them', () => {
     renderDialog({ targetSeats: 1, currentUsers: 1, hideEmbeddedUsers: true });
 

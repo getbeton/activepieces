@@ -120,7 +120,7 @@ function infoOf(overrides: Partial<InfoState> = {}): InfoState {
   return {
     autumnPlanName: 'Team',
     plan: { usersLimit: 2, scheduledUsersLimit: null },
-    seatGrace: { usedSeats: 9, userIds: ['u1', 'u2'] },
+    seatGrace: { usedSeats: 9, seatLimit: 2, userIds: ['u1', 'u2'] },
     ...overrides,
   };
 }
@@ -186,14 +186,17 @@ describe('seat dialog after the trial', () => {
     expect(screen.getByText(/the Free plan includes 2 seats\./)).toBeDefined();
   });
 
-  it('aims for the seat cap that applies, not the plan limit', () => {
-    state.info = infoOf({ plan: { usersLimit: 5, scheduledUsersLimit: 1 } });
+  it('aims for the seats the server counts against, not a scheduled downgrade', () => {
+    state.info = infoOf({
+      plan: { usersLimit: 5, scheduledUsersLimit: 1 },
+      seatGrace: { usedSeats: 7, seatLimit: 5, userIds: ['u1', 'u2'] },
+    });
     openDialog();
 
     renderSeatDialog();
 
-    expect(openedProps().targetSeats).toBe(1);
-    expect(screen.getByText(/includes 1 seat\./)).toBeDefined();
+    expect(openedProps().targetSeats).toBe(5);
+    expect(screen.getByText(/includes 5 seats\./)).toBeDefined();
   });
 
   it('renders nothing when the platform has no grace', () => {
@@ -207,17 +210,6 @@ describe('seat dialog after the trial', () => {
 
   it('renders nothing once the platform fits its seats', () => {
     state.info = infoOf({ seatGrace: null });
-    openDialog();
-
-    renderSeatDialog();
-
-    expect(state.dialogProps).toBeNull();
-  });
-
-  it('renders nothing for a plan with unlimited seats', () => {
-    state.info = infoOf({
-      plan: { usersLimit: null, scheduledUsersLimit: null },
-    });
     openDialog();
 
     renderSeatDialog();
@@ -324,7 +316,7 @@ type DialogProps = {
 type InfoState = {
   autumnPlanName: string | null;
   plan: { usersLimit: number | null; scheduledUsersLimit: number | null };
-  seatGrace: { usedSeats: number; userIds: string[] } | null;
+  seatGrace: { usedSeats: number; seatLimit: number; userIds: string[] } | null;
 };
 
 type TestState = {

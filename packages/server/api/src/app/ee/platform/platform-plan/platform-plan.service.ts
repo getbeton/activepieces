@@ -211,7 +211,7 @@ export async function assertSeatsNotBelowActiveUsers({ platformId, targetLimit, 
 }
 
 
-export function effectiveUsersLimit({ usersLimit, scheduledUsersLimit }: Pick<PlatformPlan, 'usersLimit' | 'scheduledUsersLimit'>): number | null {
+function effectiveUsersLimit({ usersLimit, scheduledUsersLimit }: Pick<PlatformPlan, 'usersLimit' | 'scheduledUsersLimit'>): number | null {
     const limits = [usersLimit, scheduledUsersLimit].filter((limit): limit is number => !isNil(limit))
     return limits.length === 0 ? null : Math.min(...limits)
 }

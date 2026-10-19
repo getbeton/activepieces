@@ -1,7 +1,7 @@
 import { ApEdition, EnterpriseTrialStatus, PlanName } from '@activepieces/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockGetEdition, mockOnTrialStarted, mockOnTrialEnded, mockStoreDelete, mockPlanUpdate, mockFindPlan, mockGetPlan, mockLogError, mockRunExclusive, mockSeatGraceRefreshed } = vi.hoisted(() => ({
+const { mockGetEdition, mockOnTrialStarted, mockOnTrialEnded, mockStoreDelete, mockPlanUpdate, mockFindPlan, mockGetPlan, mockLogError, mockRunExclusive, mockStartSeatGrace } = vi.hoisted(() => ({
     mockGetEdition: vi.fn().mockReturnValue('cloud'),
     mockOnTrialStarted: vi.fn().mockResolvedValue(undefined),
     mockOnTrialEnded: vi.fn().mockResolvedValue(undefined),
@@ -11,7 +11,7 @@ const { mockGetEdition, mockOnTrialStarted, mockOnTrialEnded, mockStoreDelete, m
     mockGetPlan: vi.fn(),
     mockLogError: vi.fn(),
     mockRunExclusive: vi.fn(async ({ fn }: { fn: () => Promise<unknown> }) => fn()),
-    mockSeatGraceRefreshed: vi.fn().mockResolvedValue(undefined),
+    mockStartSeatGrace: vi.fn().mockResolvedValue({}),
 }))
 
 vi.mock('../../../../../src/app/helper/system/system', () => ({
@@ -38,7 +38,7 @@ vi.mock('../../../../../src/app/ee/platform/platform-plan/platform-plan-telemetr
 }))
 
 vi.mock('../../../../../src/app/ee/platform/platform-plan/trial-seat-grace', () => ({
-    trialSeatGrace: () => ({ onEntitlementsRefreshed: mockSeatGraceRefreshed }),
+    trialSeatGrace: () => ({ startOnTrialEnd: mockStartSeatGrace, settle: vi.fn().mockResolvedValue(undefined) }),
 }))
 
 vi.mock('../../../../../src/app/database/redis-connections', () => ({
@@ -90,6 +90,7 @@ describe('enterprise trial', () => {
     beforeEach(() => {
         vi.useRealTimers()
         vi.clearAllMocks()
+        mockStartSeatGrace.mockResolvedValue({})
         vi.resetModules()
         mockGetEdition.mockReturnValue('cloud')
     })
@@ -305,31 +306,53 @@ describe('enterprise trial', () => {
             expect(mockOnTrialEnded).not.toHaveBeenCalled()
         })
 
-        it('hands the ended trial and the base plan billing enforcement to the seat grace', async () => {
+        it('starts the seat grace in the same plan update that clears the ended trial', async () => {
             const { autumnUtils } = await loadModules()
-            const freeOnly = {
-                subscriptions: [{ planId: PlanName.FREE, status: 'active', addOn: false, trialEndsAt: null, plan: { addOn: false, items: [] } }],
-                purchases: [],
-                balances: {},
-            }
-            vi.spyOn(autumnUtils, 'resolveClientForPlatform').mockResolvedValue({ getCustomer: async () => freeOnly } as never)
-            vi.spyOn(autumnUtils, 'writeCustomerStateCaches').mockResolvedValue(undefined)
-            vi.spyOn(autumnUtils, 'invalidateBillingOverview').mockResolvedValue(undefined)
-            vi.spyOn(autumnUtils, 'provisionLicenseKeyIfPaid').mockResolvedValue(undefined)
-            const previousPlan = { plan: PlanName.FREE, enterpriseTrialStartedAt: '2026-10-10T09:00:00.000Z', enterpriseTrialEndsAt: '2026-10-17T09:00:00.000Z' }
-            mockFindPlan.mockResolvedValue(previousPlan)
+            stubFreeCustomer(autumnUtils)
+            mockFindPlan.mockResolvedValue({ plan: PlanName.FREE, enterpriseTrialStartedAt: '2026-10-10T09:00:00.000Z', enterpriseTrialEndsAt: '2026-10-17T09:00:00.000Z' })
+            mockStartSeatGrace.mockResolvedValue({ seatGraceEndsAt: '2026-10-24T09:00:00.000Z', seatGraceTrialStartedAt: '2026-10-10T09:00:00.000Z' })
 
             await autumnUtils.refreshEntitlements(log, PLATFORM_ID)
 
-            expect(mockSeatGraceRefreshed).toHaveBeenCalledWith({
+            expect(mockStartSeatGrace).toHaveBeenCalledWith({
                 platformId: PLATFORM_ID,
-                previousPlan,
-                trialEnded: true,
+                seatLimit: null,
+                trialStartedAt: '2026-10-10T09:00:00.000Z',
                 billingEnforced: false,
             })
+            expect(mockPlanUpdate).toHaveBeenCalledTimes(1)
+            expect(mockPlanUpdate).toHaveBeenCalledWith(expect.objectContaining({
+                enterpriseTrialEndsAt: null,
+                seatGraceEndsAt: '2026-10-24T09:00:00.000Z',
+                seatGraceTrialStartedAt: '2026-10-10T09:00:00.000Z',
+            }))
+        })
+
+        it('keeps the trial dates when the seat grace cannot start, so the next refresh tries again', async () => {
+            const { autumnUtils } = await loadModules()
+            stubFreeCustomer(autumnUtils)
+            mockFindPlan.mockResolvedValue({ plan: PlanName.FREE, enterpriseTrialStartedAt: '2026-10-10T09:00:00.000Z', enterpriseTrialEndsAt: '2026-10-17T09:00:00.000Z' })
+            mockStartSeatGrace.mockRejectedValue(new Error('db down'))
+
+            await expect(autumnUtils.refreshEntitlements(log, PLATFORM_ID)).rejects.toThrow('db down')
+
+            expect(mockPlanUpdate).not.toHaveBeenCalled()
+            expect(mockOnTrialEnded).not.toHaveBeenCalled()
         })
     })
 })
+
+function stubFreeCustomer(autumnUtils: Awaited<ReturnType<typeof loadModules>>['autumnUtils']): void {
+    const freeOnly = {
+        subscriptions: [{ planId: PlanName.FREE, status: 'active', addOn: false, trialEndsAt: null, plan: { addOn: false, items: [] } }],
+        purchases: [],
+        balances: {},
+    }
+    vi.spyOn(autumnUtils, 'resolveClientForPlatform').mockResolvedValue({ getCustomer: async () => freeOnly } as never)
+    vi.spyOn(autumnUtils, 'writeCustomerStateCaches').mockResolvedValue(undefined)
+    vi.spyOn(autumnUtils, 'invalidateBillingOverview').mockResolvedValue(undefined)
+    vi.spyOn(autumnUtils, 'provisionLicenseKeyIfPaid').mockResolvedValue(undefined)
+}
 
 type StartTrialParams = {
     plan: Record<string, string>

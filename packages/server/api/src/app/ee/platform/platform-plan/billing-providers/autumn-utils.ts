@@ -174,14 +174,20 @@ export const autumnUtils = {
         const previousPlan = await platformPlanRepo().findOneBy({ platformId })
         const customer = await client.getCustomer({ expand: ['subscriptions.plan', 'purchases.plan'] })
         const entitlements = toAutumnEntitlements(customer)
+        const projection = autumnUtils.mapAutumnFeaturesToPlatformPlan(entitlements)
         const previousTrialEndsAt = previousPlan?.enterpriseTrialEndsAt ?? null
         const trialEndedAt = !isNil(previousTrialEndsAt) && isNil(entitlements.enterpriseTrial)
             ? new Date(Math.min(Date.now(), new Date(previousTrialEndsAt).getTime()))
             : null
         const trialEnded = !isNil(trialEndedAt)
+        const billingEnforced = autumnUtils.billingEnforcedFromGrantedFeatureIds(entitlements.grantedFeatureIds)
+        const seatGrace = trialEnded
+            ? await trialSeatGrace(log).startOnTrialEnd({ platformId, seatLimit: projection.usersLimit, trialStartedAt: previousPlan?.enterpriseTrialStartedAt ?? null, billingEnforced })
+            : {}
         await platformPlanService(log).update({
             platformId,
-            ...autumnUtils.mapAutumnFeaturesToPlatformPlan(entitlements),
+            ...projection,
+            ...seatGrace,
             ...spreadIfDefined('enterpriseTrialEndedAt', trialEndedAt?.toISOString()),
         })
         if (!isNil(previousTrialEndsAt) && !isNil(trialEndedAt)) {
@@ -191,12 +197,9 @@ export const autumnUtils = {
                 endedAt: trialEndedAt.toISOString(),
             }), log)
         }
-        await trialSeatGrace(log).onEntitlementsRefreshed({
-            platformId,
-            previousPlan,
-            trialEnded,
-            billingEnforced: autumnUtils.billingEnforcedFromGrantedFeatureIds(entitlements.grantedFeatureIds),
-        })
+        if (!trialEnded && !isNil(previousPlan?.seatGraceEndsAt)) {
+            await trialSeatGrace(log).settle({ platformId, billingEnforced })
+        }
         await autumnUtils.writeCustomerStateCaches({ platformId, customer, grantedFeatureIds: entitlements.grantedFeatureIds })
         await autumnUtils.invalidateBillingOverview(platformId)
         await autumnUtils.provisionLicenseKeyIfPaid(log, platformId, entitlements.planId)
