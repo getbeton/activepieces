@@ -38,7 +38,10 @@ describe('Seat grace after the Enterprise trial', () => {
         await endTrial({ platformId, billingEnforced: true })
 
         const plan = await platformPlanRepo().findOneByOrFail({ platformId })
-        expect(dayjs(plan.seatGraceEndsAt).diff(dayjs().add(7, 'day'), 'minute')).toBe(0)
+        const endsAt = dayjs(plan.seatGraceEndsAt)
+        expect(endsAt.toISOString().slice(11)).toBe('15:30:00.000Z')
+        expect(endsAt.isBefore(dayjs().add(7, 'day'))).toBe(false)
+        expect(endsAt.isBefore(dayjs().add(8, 'day'))).toBe(true)
         expect(dayjs(plan.seatGraceTrialStartedAt).toISOString()).toBe(TRIAL_STARTED_AT)
         expect(await trialSeatGrace(log).get({ plan, billingEnforced: true })).toEqual({
             usedSeats: 5,

@@ -1,6 +1,7 @@
 import { isNil, tryCatch } from '@activepieces/core-utils'
+import { apDayjs } from '@activepieces/server-utils'
 import { PlatformPlan, TrialSeatGrace, UserStatus } from '@activepieces/shared'
-import dayjs from 'dayjs'
+import dayjs, { Dayjs } from 'dayjs'
 import { FastifyBaseLogger } from 'fastify'
 import { EntityManager, In, LessThanOrEqual, SelectQueryBuilder } from 'typeorm'
 import { transaction } from '../../../core/db/transaction'
@@ -14,6 +15,8 @@ import { platformPlanRepo } from './platform-plan.service'
 
 const SEAT_GRACE_DAYS = 7
 const SWEEP_BATCH_SIZE = 100
+const SWEEP_HOUR_UTC = 15
+const SWEEP_MINUTE_UTC = 30
 
 export const trialSeatGrace = (log: FastifyBaseLogger) => ({
     async startOnTrialEnd({ platformId, seatLimit, trialStartedAt, billingEnforced }: StartOnTrialEndParams): Promise<SeatGraceColumns> {
@@ -25,7 +28,7 @@ export const trialSeatGrace = (log: FastifyBaseLogger) => ({
         if (isNil(grace)) {
             return {}
         }
-        const seatGraceEndsAt = dayjs().add(SEAT_GRACE_DAYS, 'day').toISOString()
+        const seatGraceEndsAt = firstSweepFrom(apDayjs().add(SEAT_GRACE_DAYS, 'day')).toISOString()
         log.info({ platform: { id: platformId }, seatGrace: { endsAt: seatGraceEndsAt, usersCount: grace.userIds.length } }, 'Enterprise trial ended over the plan seats, seat grace starts')
         return { seatGraceEndsAt, seatGraceTrialStartedAt: addedSince }
     },
@@ -126,6 +129,11 @@ async function findSeatsOverPlan({ platformId, seatLimit, addedSince, billingEnf
     return { usedSeats, seatLimit, userIds: newestAdded.map((user) => user.id) }
 }
 
+function firstSweepFrom(moment: Dayjs): Dayjs {
+    const sameDaySweep = moment.utc().hour(SWEEP_HOUR_UTC).minute(SWEEP_MINUTE_UTC).second(0).millisecond(0)
+    return sameDaySweep.isBefore(moment) ? sameDaySweep.add(1, 'day') : sameDaySweep
+}
+
 function activeUsers({ platformId, entityManager }: ActiveUsersParams): SelectQueryBuilder<UserSchema> {
     return userRepo(entityManager)
         .createQueryBuilder('user')
@@ -185,3 +193,5 @@ type ActiveUsersParams = {
     platformId: string
     entityManager?: EntityManager
 }
+
+export const TRIAL_SEAT_GRACE_SWEEP_CRON = `${SWEEP_MINUTE_UTC} ${SWEEP_HOUR_UTC} * * *`
