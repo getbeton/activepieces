@@ -117,6 +117,30 @@ export const enterpriseTrialHooks = {
       basePlanName,
     };
   },
+  useSeatGrace: (): SeatGrace | null => {
+    const { platform } = platformHooks.useCurrentPlatform();
+    const { embedState } = useEmbedding();
+    const isPlatformAdmin = useIsPlatformAdmin();
+    const endsAt = platform.plan.seatGraceEndsAt;
+    const seats = platform.plan.usersLimit;
+    useTrialClock(endsAt);
+    if (embedState.isEmbedded || isNil(endsAt) || isNil(seats)) {
+      return null;
+    }
+    const timing = enterpriseTrialTime.activeTrialTiming({
+      startedAt: null,
+      endsAt,
+      now: Date.now(),
+    });
+    return {
+      endsAt: timing.endsAt,
+      daysLeft: timing.daysLeft,
+      endsToday: timing.endsToday,
+      ending: timing.ending,
+      seats,
+      isPlatformAdmin,
+    };
+  },
 };
 
 export function enterpriseTrialKey(platformId: string) {
@@ -293,4 +317,13 @@ export type EnterpriseTrial = {
   extended: boolean;
   isPlatformAdmin: boolean;
   basePlanName: string;
+};
+
+export type SeatGrace = {
+  endsAt: Date;
+  daysLeft: number;
+  endsToday: boolean;
+  ending: boolean;
+  seats: number;
+  isPlatformAdmin: boolean;
 };

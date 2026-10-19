@@ -460,6 +460,7 @@ import { AddProviderConfigIdToAgentConversation1868000000000 } from './migration
 import { DropChatRolloutUserTable1870000000000 } from './migration/postgres/1870000000000-DropChatRolloutUserTable'
 import { AddEnterpriseTrialToPlatformPlan1871000000000 } from './migration/postgres/1871000000000-AddEnterpriseTrialToPlatformPlan'
 import { AddActivepiecesAiProviderHiddenToPlatformPlan1872000000000 } from './migration/postgres/1872000000000-AddActivepiecesAiProviderHiddenToPlatformPlan'
+import { AddSeatGraceToPlatformPlan1873000000000 } from './migration/postgres/1873000000000-AddSeatGraceToPlatformPlan'
 import { AddEnterpriseTrialOutcomeToPlatformPlan1875000000000 } from './migration/postgres/1875000000000-AddEnterpriseTrialOutcomeToPlatformPlan'
 import { AddAgentConversationProviderConfigIdIndex1869000000000 } from './migration/postgres/background/1869000000000-AddAgentConversationProviderConfigIdIndex'
 
@@ -942,6 +943,7 @@ export const getMigrations = (): (new () => Migration)[] => {
         DropChatRolloutUserTable1870000000000,
         AddEnterpriseTrialToPlatformPlan1871000000000,
         AddActivepiecesAiProviderHiddenToPlatformPlan1872000000000,
+        AddSeatGraceToPlatformPlan1873000000000,
         AddEnterpriseTrialOutcomeToPlatformPlan1875000000000,
     ]
     return migrations

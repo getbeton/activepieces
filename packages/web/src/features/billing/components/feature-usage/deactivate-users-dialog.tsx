@@ -35,32 +35,30 @@ export const DeactivateUsersDialog = ({
   targetSeats,
   currentUsers,
   planName,
+  description,
   warning,
+  actions,
+  preselectedUserIds,
+  preselectedLabel,
+  hideEmbeddedUsers,
   onConfirmed,
-  enforced,
 }: DeactivateUsersDialogProps) => {
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (isNil(enforced)) {
-          onOpenChange(next);
-        }
-      }}
-    >
-      <DialogContent
-        className="max-w-[480px] gap-4"
-        showCloseButton={isNil(enforced)}
-      >
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[480px] gap-4">
         <DeactivateUsersForm
           key={open ? 'deactivate-open' : 'deactivate-closed'}
           targetSeats={targetSeats}
           currentUsers={currentUsers}
           planName={planName}
+          description={description}
           warning={warning}
+          actions={actions}
+          preselectedUserIds={preselectedUserIds}
+          preselectedLabel={preselectedLabel}
+          hideEmbeddedUsers={hideEmbeddedUsers}
           onConfirmed={onConfirmed}
           onOpenChange={onOpenChange}
-          enforced={enforced}
         />
       </DialogContent>
     </Dialog>
@@ -71,33 +69,30 @@ function DeactivateUsersForm({
   targetSeats,
   currentUsers,
   planName,
+  description,
   warning,
+  actions,
+  preselectedUserIds = [],
+  preselectedLabel,
+  hideEmbeddedUsers = false,
   onConfirmed,
   onOpenChange,
-  enforced,
 }: DeactivateUsersFormProps) {
   const { platform } = platformHooks.useCurrentPlatform();
-  const { data: users } = platformUserHooks.useAllUsers();
+  const { data: users } = platformUserHooks.useAllUsers({
+    excludeEmbedded: hideEmbeddedUsers,
+  });
   const { data: invitations } = platformUserHooks.useInvitesReservingSeats();
   const queryClient = useQueryClient();
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(
-    new Set(),
+    () => new Set(preselectedUserIds),
   );
   const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());
 
   const deactivatableUsers = (users ?? []).filter(
-    (user) =>
-      user.status === UserStatus.ACTIVE &&
-      user.id !== platform.ownerId &&
-      user.id !== enforced?.excludeUserId,
+    (user) => user.status === UserStatus.ACTIVE && user.id !== platform.ownerId,
   );
   const invitedEmails = groupByEmail(invitations ?? []);
-  const seatsOnlyTheOwnerCanFree =
-    isNil(enforced?.excludeUserId) ||
-    enforced.excludeUserId === platform.ownerId
-      ? 1
-      : 2;
-  const ownerOnly = !isNil(enforced) && seatsOnlyTheOwnerCanFree > targetSeats;
 
   const usersToDeactivate = deactivatableUsers.filter((user) =>
     selectedUserIds.has(user.id),
@@ -157,7 +152,7 @@ function DeactivateUsersForm({
       <DialogHeader>
         <DialogTitle>{t('Deactivate users')}</DialogTitle>
         <DialogDescription>
-          {enforced?.description ??
+          {description ??
             (isNil(planName)
               ? t(
                   "You're reducing to {target, plural, =1 {1 seat} other {# seats}}. Deactivate users to get within the limit.",
@@ -170,57 +165,51 @@ function DeactivateUsersForm({
         </DialogDescription>
       </DialogHeader>
 
-      {ownerOnly ? (
-        <p className="text-sm text-gray-11">{enforced?.ownerOnlyMessage}</p>
-      ) : (
-        <SeatChoices
-          users={deactivatableUsers.map((user) => ({
-            id: user.id,
-            email: user.email,
-            trailingLabel: roleLabel(user.platformRole),
-          }))}
-          invitations={invitedEmails.map(({ email }) => ({
-            id: email,
-            email,
-            trailingLabel: t('Invited'),
-          }))}
-          selectedUserIds={selectedUserIds}
-          selectedEmails={selectedEmails}
-          onToggleUser={toggleUser}
-          onToggleEmail={toggleEmail}
-          seatsAfter={seatsAfter}
-          targetSeats={targetSeats}
-          withinLimit={withinLimit}
-          warning={warning}
-        />
-      )}
+      <SeatChoices
+        users={deactivatableUsers.map((user) => ({
+          id: user.id,
+          email: user.email,
+          trailingLabel:
+            preselectedUserIds.includes(user.id) && !isNil(preselectedLabel)
+              ? preselectedLabel
+              : roleLabel(user.platformRole),
+        }))}
+        invitations={invitedEmails.map(({ email }) => ({
+          id: email,
+          email,
+          trailingLabel: t('Invited'),
+        }))}
+        selectedUserIds={selectedUserIds}
+        selectedEmails={selectedEmails}
+        onToggleUser={toggleUser}
+        onToggleEmail={toggleEmail}
+        seatsAfter={seatsAfter}
+        targetSeats={targetSeats}
+        withinLimit={withinLimit}
+        warning={warning}
+      />
 
       <DialogFooter>
-        {isNil(enforced) ? (
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={isPending}
-          >
-            {t('Cancel')}
-          </Button>
-        ) : (
-          enforced.actions
-        )}
-        {!ownerOnly && (
-          <Button
-            {...adminControl(AdminControl.BILLING_DEACTIVATE_USERS_SUBMIT)}
-            type="button"
-            loading={isPending}
-            disabled={!withinLimit}
-            onClick={() => deactivateAndContinue()}
-          >
-            {emailsToRevoke.length > 0 && usersToDeactivate.length === 0
-              ? t('Revoke & continue')
-              : t('Deactivate & continue')}
-          </Button>
-        )}
+        {actions}
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => onOpenChange(false)}
+          disabled={isPending}
+        >
+          {t('Cancel')}
+        </Button>
+        <Button
+          {...adminControl(AdminControl.BILLING_DEACTIVATE_USERS_SUBMIT)}
+          type="button"
+          loading={isPending}
+          disabled={!withinLimit}
+          onClick={() => deactivateAndContinue()}
+        >
+          {emailsToRevoke.length > 0 && usersToDeactivate.length === 0
+            ? t('Revoke & continue')
+            : t('Deactivate & continue')}
+        </Button>
       </DialogFooter>
     </>
   );
@@ -362,16 +351,13 @@ type DeactivateUsersDialogProps = {
   targetSeats: number;
   currentUsers: number;
   planName?: string;
+  description?: string;
   warning?: string;
+  actions?: ReactNode;
+  preselectedUserIds?: string[];
+  preselectedLabel?: string;
+  hideEmbeddedUsers?: boolean;
   onConfirmed: () => void;
-  enforced?: EnforcedSeatFloor;
-};
-
-type EnforcedSeatFloor = {
-  description: string;
-  ownerOnlyMessage: string;
-  excludeUserId: string | null;
-  actions: ReactNode;
 };
 
 type DeactivateUsersFormProps = Omit<DeactivateUsersDialogProps, 'open'>;

@@ -36,14 +36,18 @@ export const platformUserHooks = {
       enabled: canListUsers,
     });
   },
-  useAllUsers: () => {
+  useAllUsers: ({ excludeEmbedded = false }: UseAllUsersParams = {}) => {
     const canListUsers = useCanListUsers();
     return useQuery({
-      queryKey: platformUserKeys.allUsers,
+      queryKey: [...platformUserKeys.allUsers, { excludeEmbedded }],
       queryFn: () =>
         fetchAllPages({
           fetchPage: (cursor) =>
-            platformUserApi.list({ cursor, limit: PAGE_SIZE }),
+            platformUserApi.list({
+              cursor,
+              limit: PAGE_SIZE,
+              ...(excludeEmbedded ? { excludeEmbedded } : {}),
+            }),
         }),
       enabled: canListUsers,
     });
@@ -167,4 +171,8 @@ const PAGE_SIZE = 2000;
 type FetchAllPagesParams<T> = {
   fetchPage: (cursor: string | undefined) => Promise<SeekPage<T>>;
   cursor?: string;
+};
+
+type UseAllUsersParams = {
+  excludeEmbedded?: boolean;
 };

@@ -9,6 +9,12 @@ const useManagePlanDialogStore = create<ManagePlanDialogStore>((set) => ({
   closeDialog: () => set({ isOpen: false }),
 }));
 
+const useTrialSeatDialogStore = create<TrialSeatDialogStore>((set) => ({
+  isOpen: false,
+  openDialog: () => set({ isOpen: true }),
+  closeDialog: () => set({ isOpen: false }),
+}));
+
 const useConfirmPurchaseDialogStore = create<ConfirmPurchaseDialogStore>(
   (set) => ({
     purchase: null,
@@ -43,6 +49,7 @@ const useEnterpriseTrialDialogStore = create<EnterpriseTrialDialogStore>(
 
 export const billingDialogHooks = {
   useManagePlanDialogStore,
+  useTrialSeatDialogStore,
   useConfirmPurchaseDialogStore,
   usePlanSwitchSuccessDialogStore,
   useEnterpriseTrialDialogStore,
@@ -63,6 +70,12 @@ type PlanPurchase = {
 };
 
 type ManagePlanDialogStore = {
+  isOpen: boolean;
+  openDialog: () => void;
+  closeDialog: () => void;
+};
+
+type TrialSeatDialogStore = {
   isOpen: boolean;
   openDialog: () => void;
   closeDialog: () => void;

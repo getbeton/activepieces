@@ -117,6 +117,8 @@ export const PlatformPlan = z.object({
     enterpriseTrialEndsAt: Nullable(DateOrString),
     enterpriseTrialEndedAt: Nullable(DateOrString),
     enterpriseTrialUsedElsewhereAt: Nullable(DateOrString),
+    seatGraceEndsAt: Nullable(DateOrString),
+    seatGraceTrialStartedAt: Nullable(DateOrString),
 
     projectsLimit: Nullable(z.number()),
     activeFlowsLimit: Nullable(z.number()),
@@ -291,6 +293,12 @@ export const SeatsBillableFeature = z.object({
 })
 export type SeatsBillableFeature = z.infer<typeof SeatsBillableFeature>
 
+export const TrialSeatGrace = z.object({
+    usedSeats: z.number(),
+    userIds: z.array(z.string()),
+})
+export type TrialSeatGrace = z.infer<typeof TrialSeatGrace>
+
 export type ConsumableBillableFeature = CreditsBillableFeature | AppSumoCreditsBillableFeature
 
 export const ProjectCreditUsage = z.object({
@@ -320,5 +328,6 @@ export const PlatformBillingInformation = z.object({
     billingUnavailable: z.boolean(),
     includedSeats: Nullable(z.number()),
     additionalSeats: Nullable(z.number()),
+    seatGrace: Nullable(TrialSeatGrace),
 })
 export type PlatformBillingInformation = z.infer<typeof PlatformBillingInformation>

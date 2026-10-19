@@ -9,11 +9,11 @@ import * as React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const OWNER_ID = 'owner-1';
-const ADMIN_ID = 'admin-1';
-const OWNER_ONLY = 'Only the owner can choose';
+const LEAVES_LABEL = 'Leaves Oct 26';
 
 let users: TestUser[] = [];
 let invitations: TestInvitation[] = [];
+const allUsers = vi.fn();
 const updateUser = vi.fn();
 const deleteInvitation = vi.fn();
 const errorToast = vi.fn();
@@ -34,7 +34,7 @@ vi.mock('@/hooks/platform-hooks', () => ({
 vi.mock('@/features/platform-admin/hooks/platform-user-hooks', () => ({
   platformUserKeys: { users: ['users'], invitations: ['invitations'] },
   platformUserHooks: {
-    useAllUsers: () => ({ data: users }),
+    useAllUsers: (params: unknown) => allUsers(params),
     useInvitesReservingSeats: () => ({ data: invitations }),
   },
 }));
@@ -64,31 +64,26 @@ vi.mock('@/lib/admin-control', () => ({
 
 import { DeactivateUsersDialog } from '@/features/billing/components/feature-usage/deactivate-users-dialog';
 
-function renderEnforced(params: RenderParams) {
+function renderDialog(params: RenderParams) {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false } },
   });
-  const onOpenChange = params.onOpenChange ?? vi.fn();
-  const dialog = ({ viewerId, targetSeats, currentUsers }: RenderParams) => (
+  const onOpenChange = vi.fn();
+  const onConfirmed = vi.fn();
+  const dialog = (next: RenderParams) => (
     <QueryClientProvider client={queryClient}>
       <DeactivateUsersDialog
         open={true}
         onOpenChange={onOpenChange}
-        targetSeats={targetSeats}
-        currentUsers={currentUsers}
-        onConfirmed={vi.fn()}
-        enforced={{
-          description: 'Choose who to deactivate',
-          ownerOnlyMessage: OWNER_ONLY,
-          excludeUserId: viewerId,
-          actions: null,
-        }}
+        onConfirmed={onConfirmed}
+        {...next}
       />
     </QueryClientProvider>
   );
   const view = render(dialog(params));
   return {
     onOpenChange,
+    onConfirmed,
     rerender: (next: Partial<RenderParams>) =>
       view.rerender(dialog({ ...params, ...next })),
   };
@@ -107,6 +102,18 @@ function invitation(id: string, email = `${id}@example.com`): TestInvitation {
   return { id, email };
 }
 
+function tickedStates(): (string | null)[] {
+  return screen
+    .getAllByRole('checkbox')
+    .map((checkbox) => checkbox.getAttribute('aria-checked'));
+}
+
+function submitButton(): HTMLButtonElement {
+  return screen.getByRole<HTMLButtonElement>('button', {
+    name: 'Deactivate & continue',
+  });
+}
+
 beforeEach(() => {
   vi.stubGlobal(
     'ResizeObserver',
@@ -117,51 +124,163 @@ beforeEach(() => {
   );
   users = [user(OWNER_ID)];
   invitations = [];
+  allUsers.mockReset().mockImplementation(() => ({ data: users }));
   updateUser.mockReset().mockResolvedValue(undefined);
   deleteInvitation.mockReset().mockResolvedValue(undefined);
   errorToast.mockReset();
   refreshBillingCaches.mockReset();
 });
 
-describe('DeactivateUsersDialog when a trial ends', () => {
-  it('lets the owner choose however many invitations are pending', () => {
-    invitations = Array.from({ length: 100 }, (_, index) =>
-      invitation(`invite-${index}`),
-    );
+describe('DeactivateUsersDialog preselection', () => {
+  it('asks for the users without the embedded ones when told to hide them', () => {
+    renderDialog({ targetSeats: 1, currentUsers: 1, hideEmbeddedUsers: true });
 
-    renderEnforced({ viewerId: OWNER_ID, targetSeats: 1, currentUsers: 102 });
-
-    expect(screen.queryByText(OWNER_ONLY)).toBeNull();
-    expect(screen.getByText('Deactivate & continue')).toBeTruthy();
+    expect(allUsers).toHaveBeenCalledWith({ excludeEmbedded: true });
   });
 
-  it('sends a non-owner admin to the owner when the plan has a single seat', () => {
-    users = [user(OWNER_ID), user(ADMIN_ID), user('operator-1')];
+  it('asks for every user by default', () => {
+    renderDialog({ targetSeats: 1, currentUsers: 1 });
 
-    renderEnforced({ viewerId: ADMIN_ID, targetSeats: 1, currentUsers: 3 });
-
-    expect(screen.getByText(OWNER_ONLY)).toBeTruthy();
-    expect(screen.queryByText('Deactivate & continue')).toBeNull();
+    expect(allUsers).toHaveBeenCalledWith({ excludeEmbedded: false });
   });
 
-  it('lets a non-owner admin choose when the plan has room for the owner and them', () => {
-    users = [user(OWNER_ID), user(ADMIN_ID), user('operator-1')];
+  it('starts with the preselected users ticked and labels them', () => {
+    users = [user(OWNER_ID), user('a'), user('b'), user('c')];
 
-    renderEnforced({ viewerId: ADMIN_ID, targetSeats: 2, currentUsers: 3 });
+    renderDialog({
+      targetSeats: 2,
+      currentUsers: 4,
+      preselectedUserIds: ['a', 'b'],
+      preselectedLabel: LEAVES_LABEL,
+    });
 
-    expect(screen.queryByText(OWNER_ONLY)).toBeNull();
+    expect(tickedStates()).toEqual(['true', 'true', 'false']);
+    expect(screen.getAllByText(LEAVES_LABEL)).toHaveLength(2);
+    expect(screen.getAllByText('Operator')).toHaveLength(1);
+    expect(submitButton().disabled).toBe(false);
   });
 
+  it('shows the role of every user while nobody is preselected', () => {
+    users = [user(OWNER_ID), user('a'), user('b')];
+
+    renderDialog({ targetSeats: 1, currentUsers: 3 });
+
+    expect(tickedStates()).toEqual(['false', 'false']);
+    expect(screen.getAllByText('Operator')).toHaveLength(2);
+    expect(submitButton().disabled).toBe(true);
+  });
+
+  it('ignores preselected users who cannot be deactivated', () => {
+    users = [
+      user(OWNER_ID),
+      user('a'),
+      { ...user('gone'), status: UserStatus.INACTIVE },
+    ];
+
+    renderDialog({
+      targetSeats: 1,
+      currentUsers: 3,
+      preselectedUserIds: [OWNER_ID, 'a', 'gone', 'unknown'],
+      preselectedLabel: LEAVES_LABEL,
+    });
+
+    expect(tickedStates()).toEqual(['true']);
+    expect(screen.getAllByText(LEAVES_LABEL)).toHaveLength(1);
+    expect(submitButton().disabled).toBe(true);
+  });
+
+  it('applies the preselection to users who arrive after the dialog opens', () => {
+    const { rerender } = renderDialog({
+      targetSeats: 1,
+      currentUsers: 3,
+      preselectedUserIds: ['a', 'b'],
+    });
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+
+    users = [user(OWNER_ID), user('a'), user('b')];
+    rerender({});
+
+    expect(tickedStates()).toEqual(['true', 'true']);
+    expect(submitButton().disabled).toBe(false);
+  });
+
+  it('keeps its starting selection when the preselection changes while open', () => {
+    users = [user(OWNER_ID), user('a'), user('b')];
+    const { rerender } = renderDialog({
+      targetSeats: 1,
+      currentUsers: 3,
+      preselectedUserIds: ['a'],
+    });
+    expect(tickedStates()).toEqual(['true', 'false']);
+
+    rerender({ preselectedUserIds: ['b'] });
+
+    expect(tickedStates()).toEqual(['true', 'false']);
+  });
+
+  it('lets the admin change who leaves before deactivating', async () => {
+    users = [user(OWNER_ID), user('a'), user('b'), user('c')];
+    const { onOpenChange, onConfirmed } = renderDialog({
+      targetSeats: 2,
+      currentUsers: 4,
+      preselectedUserIds: ['a', 'b'],
+      preselectedLabel: LEAVES_LABEL,
+    });
+
+    const [first, , third] = screen.getAllByRole('checkbox');
+    fireEvent.click(first);
+    expect(tickedStates()).toEqual(['false', 'true', 'false']);
+    expect(submitButton().disabled).toBe(true);
+
+    fireEvent.click(third);
+    expect(tickedStates()).toEqual(['false', 'true', 'true']);
+    expect(submitButton().disabled).toBe(false);
+
+    fireEvent.click(submitButton());
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(onConfirmed).toHaveBeenCalledTimes(1);
+    expect(updateUser).toHaveBeenCalledTimes(2);
+    expect(updateUser).toHaveBeenCalledWith('b', {
+      status: UserStatus.INACTIVE,
+    });
+    expect(updateUser).toHaveBeenCalledWith('c', {
+      status: UserStatus.INACTIVE,
+    });
+  });
+});
+
+describe('DeactivateUsersDialog framing', () => {
+  it('shows the description and extra actions it is given next to Cancel', () => {
+    users = [user(OWNER_ID), user('a')];
+
+    const { onOpenChange } = renderDialog({
+      targetSeats: 1,
+      currentUsers: 2,
+      description: 'Your trial has ended',
+      actions: <button type="button">Explore plans</button>,
+    });
+
+    expect(screen.getByText('Your trial has ended')).toBeTruthy();
+    expect(screen.getByText('Explore plans')).toBeTruthy();
+    fireEvent.click(screen.getByText('Cancel'));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('can always be closed from the corner', () => {
+    renderDialog({ targetSeats: 1, currentUsers: 1 });
+
+    expect(screen.getByText('Close')).toBeTruthy();
+  });
+});
+
+describe('DeactivateUsersDialog invitations', () => {
   it('counts one seat per invited email and revokes every invite for it', async () => {
     invitations = [
       invitation('invite-1', 'bob@example.com'),
       invitation('invite-2', 'Bob@example.com'),
     ];
-    const { onOpenChange } = renderEnforced({
-      viewerId: OWNER_ID,
-      targetSeats: 1,
-      currentUsers: 2,
-    });
+    const { onOpenChange } = renderDialog({ targetSeats: 1, currentUsers: 2 });
 
     const checkboxes = screen.getAllByRole('checkbox');
     expect(checkboxes).toHaveLength(1);
@@ -178,8 +297,7 @@ describe('DeactivateUsersDialog when a trial ends', () => {
     users = [user(OWNER_ID), user('operator-1')];
     invitations = [invitation('invite-1')];
     updateUser.mockRejectedValueOnce(new Error('network'));
-    const { onOpenChange, rerender } = renderEnforced({
-      viewerId: OWNER_ID,
+    const { onOpenChange, rerender } = renderDialog({
       targetSeats: 1,
       currentUsers: 3,
     });
@@ -218,9 +336,7 @@ type TestInvitation = {
   email: string;
 };
 
-type RenderParams = {
-  viewerId: string;
-  targetSeats: number;
-  currentUsers: number;
-  onOpenChange?: (open: boolean) => void;
-};
+type RenderParams = Omit<
+  React.ComponentProps<typeof DeactivateUsersDialog>,
+  'open' | 'onOpenChange' | 'onConfirmed'
+>;

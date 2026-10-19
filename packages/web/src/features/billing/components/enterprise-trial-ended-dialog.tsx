@@ -2,7 +2,7 @@ import { isNil } from '@activepieces/core-utils';
 import { PlatformAdminSurface } from '@activepieces/shared';
 import dayjs from 'dayjs';
 import { t } from 'i18next';
-import { Check } from 'lucide-react';
+import { Check, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -16,8 +16,11 @@ import { platformHooks } from '@/hooks/platform-hooks';
 import { AdminControl, adminControl } from '@/lib/admin-control';
 import { authenticationSession } from '@/lib/authentication-session';
 
+import { billingDialogHooks } from '../hooks/billing-dialog-hooks';
+import { billingQueries } from '../hooks/billing-hooks';
 import { enterpriseTrialHooks } from '../hooks/enterprise-trial-hooks';
 import { useUpgradeClick } from '../hooks/use-upgrade-click';
+import { enterpriseTrialCopy } from '../utils/enterprise-trial-copy';
 import { enterpriseTrialFeatures } from '../utils/enterprise-trial-features';
 import { enterpriseTrialTime } from '../utils/enterprise-trial-time';
 import { enterpriseTrialUi } from '../utils/enterprise-trial-ui';
@@ -28,6 +31,9 @@ import { EnterpriseTrialSeatDialog } from './enterprise-trial-seat-dialog';
 export function EnterpriseTrialEndedDialog() {
   const { platform } = platformHooks.useCurrentPlatform();
   const trial = enterpriseTrialHooks.useTrial();
+  const grace = enterpriseTrialHooks.useSeatGrace();
+  const { openDialog: openSeatDialog } =
+    billingDialogHooks.useTrialSeatDialogStore();
   const upgradeClick = useUpgradeClick();
   const storageKey = `${SEEN_KEY_PREFIX}${enterpriseTrialUi.trialStorageId({
     platformId: platform.id,
@@ -45,6 +51,11 @@ export function EnterpriseTrialEndedDialog() {
     }) <= SHOW_FOR_DAYS;
   const open =
     trial.state === 'ended' && trial.isPlatformAdmin && recent && !seen;
+  const { data: info } = billingQueries.usePlatformSubscription(
+    platform.id,
+    open && !isNil(grace),
+  );
+  const overSeats = info?.seatGrace?.userIds.length ?? 0;
   const close = () => {
     enterpriseTrialUi.writeFlag(storageKey);
     setSeenKey(storageKey);
@@ -74,6 +85,29 @@ export function EnterpriseTrialEndedDialog() {
                   })}
             </DialogDescription>
           </div>
+          {!isNil(grace) && overSeats > 0 && (
+            <div className="flex flex-col items-start gap-3 rounded-lg border border-warning-7 bg-warning-3 p-3.5 text-sm text-warning-11">
+              <p className="flex items-start gap-2.5">
+                <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+                {enterpriseTrialCopy.seatGraceNotice({
+                  count: overSeats,
+                  plan: trial.basePlanName,
+                  endsAt: grace.endsAt,
+                })}
+              </p>
+              <Button
+                {...adminControl(AdminControl.TRIAL_SEATS_OPEN)}
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  close();
+                  openSeatDialog();
+                }}
+              >
+                {t('Manage seats')}
+              </Button>
+            </div>
+          )}
           <div className="flex flex-col gap-3">
             <span className="text-sm font-medium text-gray-12">
               {t('Everything you built is still here')}

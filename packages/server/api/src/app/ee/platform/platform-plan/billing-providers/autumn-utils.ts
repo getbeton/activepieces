@@ -26,6 +26,7 @@ import { platformService } from '../../../../platform/platform.service'
 import { userService } from '../../../../user/user-service'
 import { platformPlanTelemetry } from '../platform-plan-telemetry'
 import { platformPlanRepo, platformPlanService } from '../platform-plan.service'
+import { trialSeatGrace } from '../trial-seat-grace'
 
 const AUTUMN_CONSOLE_URL = system.getOrThrow(AppSystemProp.AUTUMN_CONSOLE_URL).replace(/\/+$/, '')
 const edition = system.getEdition()
@@ -177,6 +178,7 @@ export const autumnUtils = {
         const trialEndedAt = !isNil(previousTrialEndsAt) && isNil(entitlements.enterpriseTrial)
             ? new Date(Math.min(Date.now(), new Date(previousTrialEndsAt).getTime()))
             : null
+        const trialEnded = !isNil(trialEndedAt)
         await platformPlanService(log).update({
             platformId,
             ...autumnUtils.mapAutumnFeaturesToPlatformPlan(entitlements),
@@ -189,6 +191,12 @@ export const autumnUtils = {
                 endedAt: trialEndedAt.toISOString(),
             }), log)
         }
+        await trialSeatGrace(log).onEntitlementsRefreshed({
+            platformId,
+            previousPlan,
+            trialEnded,
+            billingEnforced: autumnUtils.billingEnforcedFromGrantedFeatureIds(entitlements.grantedFeatureIds),
+        })
         await autumnUtils.writeCustomerStateCaches({ platformId, customer, grantedFeatureIds: entitlements.grantedFeatureIds })
         await autumnUtils.invalidateBillingOverview(platformId)
         await autumnUtils.provisionLicenseKeyIfPaid(log, platformId, entitlements.planId)
@@ -726,6 +734,8 @@ type NotProjectedFromAutumn =
     | 'workerGroupId'
     | 'enterpriseTrialEndedAt'
     | 'enterpriseTrialUsedElsewhereAt'
+    | 'seatGraceEndsAt'
+    | 'seatGraceTrialStartedAt'
 
 type PlatformPlanProjection = Required<Pick<PlatformPlanLimits, Exclude<keyof PlatformPlanLimits, NotProjectedFromAutumn>>>
 

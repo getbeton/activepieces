@@ -1,7 +1,10 @@
 import dayjs from 'dayjs';
 import { t } from 'i18next';
 
-import type { EnterpriseTrial } from '../hooks/enterprise-trial-hooks';
+import type {
+  EnterpriseTrial,
+  SeatGrace,
+} from '../hooks/enterprise-trial-hooks';
 
 function daysLeftLabel(trial: EnterpriseTrial): string {
   if (trial.endsToday) {
@@ -15,7 +18,9 @@ function daysLeftLabel(trial: EnterpriseTrial): string {
   });
 }
 
-function cardStatus(trial: EnterpriseTrial): string {
+function cardStatus(
+  trial: Pick<EnterpriseTrial, 'endsToday' | 'ending' | 'daysLeft'>,
+): string {
   if (trial.endsToday) {
     return t('last day');
   }
@@ -73,10 +78,53 @@ function details(trial: EnterpriseTrial): string {
   );
 }
 
+function seatGraceTooltip(grace: SeatGrace): string {
+  const params = {
+    seats: grace.seats,
+    date: dayjs(grace.endsAt).format('MMM D'),
+  };
+  if (grace.isPlatformAdmin) {
+    return t(
+      "Users added during the trial beyond the plan's {seats, plural, =1 {1 seat} other {# seats}} will be deactivated on {date}. Manage seats, or upgrade to keep them.",
+      params,
+    );
+  }
+  return t(
+    "Your Enterprise trial has ended. Users added during it beyond the plan's {seats, plural, =1 {1 seat} other {# seats}} lose access on {date} unless an admin upgrades.",
+    params,
+  );
+}
+
+function seatGraceSidebarDetail(grace: SeatGrace): string {
+  return t('Extra users lose access {date}', {
+    date: dayjs(grace.endsAt).format('MMM D'),
+  });
+}
+
+function seatGraceNotice({
+  count,
+  plan,
+  endsAt,
+}: SeatGraceNoticeParams): string {
+  return t(
+    "{count, plural, =1 {1 user} other {# users}} added during the trial {count, plural, =1 {is} other {are}} over the {plan} plan's seats and will be deactivated on {date}.",
+    { count, plan, date: dayjs(endsAt).format('MMM D') },
+  );
+}
+
 export const enterpriseTrialCopy = {
   daysLeftLabel,
   sidebarDetail,
   cardStatus,
   endsSentence,
   details,
+  seatGraceTooltip,
+  seatGraceSidebarDetail,
+  seatGraceNotice,
+};
+
+type SeatGraceNoticeParams = {
+  count: number;
+  plan: string;
+  endsAt: Date;
 };
