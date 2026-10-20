@@ -2,6 +2,7 @@ import { PlatformRole, PrincipalType, User, UserIdentityProvider, UserStatus } f
 import dayjs from 'dayjs'
 import { FastifyBaseLogger, FastifyInstance } from 'fastify'
 import { StatusCodes } from 'http-status-codes'
+import { In, IsNull, Not } from 'typeorm'
 import { getBillingEnforcedKey, getBillingOverviewKey } from '../../../../src/app/database/redis/keys'
 import { distributedStore } from '../../../../src/app/database/redis-connections'
 import { autumnUtils } from '../../../../src/app/ee/platform/platform-plan/billing-providers/autumn-utils'
@@ -30,6 +31,7 @@ afterEach(() => {
 })
 
 const TRIAL_STARTED_AT = dayjs().subtract(10, 'day').toISOString()
+const TRIAL_ENDED_AT = dayjs().subtract(3, 'day').toISOString()
 
 describe('Seat grace after the Enterprise trial', () => {
     it('starts when the trial ends with users added during it beyond the plan seats', async () => {
@@ -43,7 +45,7 @@ describe('Seat grace after the Enterprise trial', () => {
         expect(endsAt.isBefore(dayjs().add(7, 'day'))).toBe(false)
         expect(endsAt.isBefore(dayjs().add(8, 'day'))).toBe(true)
         expect(dayjs(plan.seatGraceTrialStartedAt).toISOString()).toBe(TRIAL_STARTED_AT)
-        expect(await trialSeatGrace(log).get({ plan, billingEnforced: true })).toEqual({
+        expect(await trialSeatGrace(log).get({ plan })).toEqual({
             usedSeats: 5,
             seatLimit: 3,
             userIds: [trialUsers[2].id, trialUsers[1].id],
@@ -57,7 +59,7 @@ describe('Seat grace after the Enterprise trial', () => {
         await endTrial({ platformId, billingEnforced: true })
 
         const plan = await platformPlanRepo().findOneByOrFail({ platformId })
-        expect(await trialSeatGrace(log).get({ plan, billingEnforced: true })).toEqual({
+        expect(await trialSeatGrace(log).get({ plan })).toEqual({
             usedSeats: 4,
             seatLimit: 3,
             userIds: [trialUsers[2].id],
@@ -86,7 +88,7 @@ describe('Seat grace after the Enterprise trial', () => {
         await endTrial({ platformId, billingEnforced: true })
 
         const plan = await platformPlanRepo().findOneByOrFail({ platformId })
-        expect(await trialSeatGrace(log).get({ plan, billingEnforced: true })).toEqual({
+        expect(await trialSeatGrace(log).get({ plan })).toEqual({
             usedSeats: 3,
             seatLimit: 2,
             userIds: [trialUsers[1].id],
@@ -178,6 +180,72 @@ describe('Seat grace after the Enterprise trial', () => {
         expect(response.json().seatGrace).toEqual({ usedSeats: 5, seatLimit: 3, userIds: [trialUsers[2].id, trialUsers[1].id] })
     })
 
+    it('never removes someone who joined after the trial ended, and picks trial users instead', async () => {
+        const { platformId, trialUsers } = await setupPlatform({ usersLimit: 3, preTrialUsers: 1, trialUsers: 2 })
+        const [laterJoiner] = await addUsers({ platformId, count: 1, firstDaysAgo: 1 })
+        await endTrial({ platformId, billingEnforced: true })
+        await endGraceNow(platformId)
+
+        await trialSeatGrace(log).sweep()
+
+        expect(await statusOf(laterJoiner)).toBe(UserStatus.ACTIVE)
+        for (const user of trialUsers) {
+            expect(await statusOf(user)).toBe(UserStatus.INACTIVE)
+        }
+    })
+
+    it('finishes the other deadlines when one fails, then fails the run so the job retries it', async () => {
+        const failing = await setupPlatform({ usersLimit: 3, preTrialUsers: 1, trialUsers: 3 })
+        const passing = await setupPlatform({ usersLimit: 3, preTrialUsers: 1, trialUsers: 3 })
+        for (const { platformId } of [failing, passing]) {
+            await endTrial({ platformId, billingEnforced: true })
+            await endGraceNow(platformId)
+        }
+        vi.spyOn(autumnUtils, 'refreshEntitlements').mockImplementation(async (_log, platformId) => {
+            if (platformId === failing.platformId) {
+                throw new Error('autumn is down')
+            }
+        })
+
+        await expect(trialSeatGrace(log).sweep()).rejects.toThrow('the sweep job retries them')
+
+        expect(await statusOf(passing.trialUsers[2])).toBe(UserStatus.INACTIVE)
+        expect(await statusOf(failing.trialUsers[2])).toBe(UserStatus.ACTIVE)
+        expect((await platformPlanRepo().findOneByOrFail({ platformId: failing.platformId })).seatGraceEndsAt).not.toBeNull()
+    })
+
+    it('ends every due grace in one run, past the first batch', async () => {
+        const dueAt = dayjs().subtract(1, 'minute').toISOString()
+        const platformIds: string[] = []
+        for (let index = 0; index < 101; index++) {
+            const { mockPlatform } = await mockAndSaveBasicSetup({ plan: { usersLimit: 5, scheduledUsersLimit: null, seatGraceEndsAt: dueAt, seatGraceTrialStartedAt: TRIAL_STARTED_AT } })
+            platformIds.push(mockPlatform.id)
+        }
+        stubRefresh()
+
+        await trialSeatGrace(log).sweep()
+
+        const stillDue = await platformPlanRepo().countBy({ platformId: In(platformIds), seatGraceEndsAt: Not(IsNull()) })
+        expect(stillDue).toBe(0)
+    })
+
+    it('keeps the grace when the billing info cannot tell whether billing is enforced', async () => {
+        const { platformId, owner, trialUsers } = await setupPlatform({ usersLimit: 3, preTrialUsers: 1, trialUsers: 3 })
+        await endTrial({ platformId, billingEnforced: true })
+        await distributedStore.delete(getBillingEnforcedKey(platformId))
+        await distributedStore.put(getBillingOverviewKey(platformId), FREE_OVERVIEW, 300)
+        const token = await generateMockToken({ id: owner.id, type: PrincipalType.USER, platform: { id: platformId } })
+
+        const response = await app!.inject({
+            method: 'GET',
+            url: '/api/v1/platform-billing/info',
+            headers: { authorization: `Bearer ${token}` },
+        })
+
+        expect(response.json().seatGrace).toEqual({ usedSeats: 5, seatLimit: 3, userIds: [trialUsers[2].id, trialUsers[1].id] })
+        expect((await platformPlanRepo().findOneByOrFail({ platformId })).seatGraceEndsAt).not.toBeNull()
+    })
+
     it('clears the grace when the billing info finds the platform fits again', async () => {
         const { platformId, owner, trialUsers } = await setupPlatform({ usersLimit: 3, preTrialUsers: 1, trialUsers: 3 })
         await endTrial({ platformId, billingEnforced: true })
@@ -225,10 +293,8 @@ async function addUsers({ platformId, count, firstDaysAgo, provider = UserIdenti
 
 async function endTrial({ platformId, billingEnforced }: EndTrialParams): Promise<void> {
     const plan = await platformPlanRepo().findOneByOrFail({ platformId })
-    const seatGrace = await trialSeatGrace(log).startOnTrialEnd({ platformId, seatLimit: plan.usersLimit ?? null, trialStartedAt: TRIAL_STARTED_AT, billingEnforced })
-    if (Object.keys(seatGrace).length > 0) {
-        await platformPlanRepo().update({ platformId }, seatGrace)
-    }
+    const seatGrace = await trialSeatGrace(log).startOnTrialEnd({ platformId, seatLimit: plan.usersLimit ?? null, trialStartedAt: TRIAL_STARTED_AT, trialEndedAt: TRIAL_ENDED_AT, billingEnforced })
+    await platformPlanRepo().update({ platformId }, { ...seatGrace, enterpriseTrialEndedAt: TRIAL_ENDED_AT })
 }
 
 async function refreshWithoutTrialChange({ platformId }: { platformId: string }): Promise<void> {

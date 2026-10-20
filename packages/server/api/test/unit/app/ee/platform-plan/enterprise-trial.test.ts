@@ -318,6 +318,7 @@ describe('enterprise trial', () => {
                 platformId: PLATFORM_ID,
                 seatLimit: null,
                 trialStartedAt: '2026-10-10T09:00:00.000Z',
+                trialEndedAt: new Date('2026-10-17T09:00:00.000Z'),
                 billingEnforced: false,
             })
             expect(mockPlanUpdate).toHaveBeenCalledTimes(1)

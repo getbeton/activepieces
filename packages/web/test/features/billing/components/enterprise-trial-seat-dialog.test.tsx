@@ -23,8 +23,6 @@ import { icuI18n } from '../../../i18n/icu-i18n';
 const state = vi.hoisted<TestState>(() => ({
   isPlatformAdmin: true,
   grace: null,
-  trialState: undefined,
-  planTrialEndsAt: null,
   info: undefined,
   subscriptionEnabled: undefined,
   dialogProps: null,
@@ -38,7 +36,7 @@ vi.mock('@/hooks/platform-hooks', () => ({
     useCurrentPlatform: () => ({
       platform: {
         id: 'platform-1',
-        plan: { enterpriseTrialEndsAt: state.planTrialEndsAt },
+        plan: { enterpriseTrialEndsAt: null },
       },
     }),
   },
@@ -51,7 +49,6 @@ vi.mock('@/hooks/authorization-hooks', () => ({
 vi.mock('@/features/billing/hooks/enterprise-trial-hooks', () => ({
   enterpriseTrialHooks: {
     useSeatGrace: () => state.grace,
-    useStatus: () => ({ data: { state: state.trialState } }),
   },
 }));
 
@@ -139,8 +136,6 @@ beforeAll(async () => {
 beforeEach(() => {
   state.isPlatformAdmin = true;
   state.grace = graceOf();
-  state.trialState = undefined;
-  state.planTrialEndsAt = null;
   state.info = infoOf();
   state.subscriptionEnabled = undefined;
   state.dialogProps = null;
@@ -278,28 +273,6 @@ describe('seat dialog after the trial', () => {
   });
 });
 
-describe('plan refresh after the trial', () => {
-  it('runs once when the trial ended but the plan still carries its dates', async () => {
-    state.trialState = 'ended';
-    state.planTrialEndsAt = '2026-10-19T09:00:00.000Z';
-
-    renderSeatDialog();
-
-    await waitFor(() =>
-      expect(refreshSubscriptionInfo).toHaveBeenCalledTimes(1),
-    );
-    await waitFor(() => expect(refreshBillingCaches).toHaveBeenCalledTimes(1));
-  });
-
-  it('stays quiet once the plan no longer carries the trial', () => {
-    state.trialState = 'ended';
-
-    renderSeatDialog();
-
-    expect(refreshSubscriptionInfo).not.toHaveBeenCalled();
-  });
-});
-
 type DialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -322,8 +295,6 @@ type InfoState = {
 type TestState = {
   isPlatformAdmin: boolean;
   grace: SeatGrace | null;
-  trialState: string | undefined;
-  planTrialEndsAt: string | null;
   info: InfoState | undefined;
   subscriptionEnabled: boolean | undefined;
   dialogProps: DialogProps | null;

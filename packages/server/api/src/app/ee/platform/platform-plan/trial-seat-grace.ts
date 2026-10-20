@@ -1,9 +1,10 @@
 import { isNil, tryCatch } from '@activepieces/core-utils'
 import { apDayjs } from '@activepieces/server-utils'
 import { PlatformPlan, TrialSeatGrace, UserStatus } from '@activepieces/shared'
+import { JobsOptions } from 'bullmq'
 import dayjs, { Dayjs } from 'dayjs'
 import { FastifyBaseLogger } from 'fastify'
-import { EntityManager, In, LessThanOrEqual, SelectQueryBuilder } from 'typeorm'
+import { EntityManager, In, LessThanOrEqual, Not, SelectQueryBuilder } from 'typeorm'
 import { transaction } from '../../../core/db/transaction'
 import { rejectedPromiseHandler } from '../../../helper/promise-handler'
 import { billingProvider } from '../../../platform/billing-provider'
@@ -19,12 +20,12 @@ const SWEEP_HOUR_UTC = 15
 const SWEEP_MINUTE_UTC = 30
 
 export const trialSeatGrace = (log: FastifyBaseLogger) => ({
-    async startOnTrialEnd({ platformId, seatLimit, trialStartedAt, billingEnforced }: StartOnTrialEndParams): Promise<SeatGraceColumns> {
+    async startOnTrialEnd({ platformId, seatLimit, trialStartedAt, trialEndedAt, billingEnforced }: StartOnTrialEndParams): Promise<SeatGraceColumns> {
         if (isNil(trialStartedAt)) {
             return {}
         }
         const addedSince = dayjs(trialStartedAt).toISOString()
-        const grace = await findSeatsOverPlan({ platformId, seatLimit, addedSince, billingEnforced, log })
+        const grace = await findSeatsOverPlan({ platformId, seatLimit, addedSince, addedBefore: trialEndedAt, billingEnforced, log })
         if (isNil(grace)) {
             return {}
         }
@@ -38,20 +39,25 @@ export const trialSeatGrace = (log: FastifyBaseLogger) => ({
             log.error({ error, platform: { id: platformId } }, 'Failed to settle the seat grace after an entitlements refresh')
         }
     },
-    async get({ plan, billingEnforced }: GetParams): Promise<TrialSeatGrace | null> {
-        return settleSeatGrace({ plan, billingEnforced, log })
+    async get({ plan }: GetParams): Promise<TrialSeatGrace | null> {
+        return settleSeatGrace({ plan, billingEnforced: true, log })
     },
     async sweep(): Promise<void> {
-        const due = await platformPlanRepo().find({
-            select: { platformId: true },
-            where: { seatGraceEndsAt: LessThanOrEqual(dayjs().toISOString()) },
-            take: SWEEP_BATCH_SIZE,
-        })
-        for (const { platformId } of due) {
-            const { error } = await tryCatch(() => deactivateUsersOverPlan({ platformId, log }))
-            if (!isNil(error)) {
-                log.error({ error, platform: { id: platformId } }, 'Failed to end the seat grace')
+        const now = dayjs().toISOString()
+        const failedPlatformIds: string[] = []
+        let due = await findDueSeatGraces({ now, excludedPlatformIds: failedPlatformIds })
+        while (due.length > 0) {
+            for (const { platformId } of due) {
+                const { error } = await tryCatch(() => deactivateUsersOverPlan({ platformId, log }))
+                if (!isNil(error)) {
+                    log.error({ error, platform: { id: platformId } }, 'Failed to end the seat grace')
+                    failedPlatformIds.push(platformId)
+                }
             }
+            due = due.length < SWEEP_BATCH_SIZE ? [] : await findDueSeatGraces({ now, excludedPlatformIds: failedPlatformIds })
+        }
+        if (failedPlatformIds.length > 0) {
+            throw new Error(`Failed to end the seat grace for ${failedPlatformIds.length} platform(s); the sweep job retries them`)
         }
     },
 })
@@ -64,6 +70,7 @@ async function settleSeatGrace({ plan, billingEnforced, log }: SettleSeatGracePa
         platformId: plan.platformId,
         seatLimit: plan.usersLimit,
         addedSince: plan.seatGraceTrialStartedAt,
+        addedBefore: plan.enterpriseTrialEndedAt,
         billingEnforced,
         log,
     })
@@ -87,6 +94,7 @@ async function deactivateUsersOverPlan({ platformId, log }: PlatformLogParams): 
             platformId,
             seatLimit: plan.usersLimit,
             addedSince: plan.seatGraceTrialStartedAt,
+            addedBefore: plan.enterpriseTrialEndedAt,
             billingEnforced,
             log,
             entityManager,
@@ -104,7 +112,18 @@ async function deactivateUsersOverPlan({ platformId, log }: PlatformLogParams): 
     log.info({ platform: { id: platformId }, seatGrace: { deactivatedCount: deactivated } }, 'Seat grace ended')
 }
 
-async function findSeatsOverPlan({ platformId, seatLimit, addedSince, billingEnforced, log, entityManager }: FindSeatsOverPlanParams): Promise<TrialSeatGrace | null> {
+async function findDueSeatGraces({ now, excludedPlatformIds }: FindDueSeatGracesParams): Promise<{ platformId: string }[]> {
+    return platformPlanRepo().find({
+        select: { platformId: true },
+        where: {
+            seatGraceEndsAt: LessThanOrEqual(now),
+            ...(excludedPlatformIds.length === 0 ? {} : { platformId: Not(In(excludedPlatformIds)) }),
+        },
+        take: SWEEP_BATCH_SIZE,
+    })
+}
+
+async function findSeatsOverPlan({ platformId, seatLimit, addedSince, addedBefore, billingEnforced, log, entityManager }: FindSeatsOverPlanParams): Promise<TrialSeatGrace | null> {
     if (!billingEnforced || isNil(seatLimit) || isNil(addedSince)) {
         return null
     }
@@ -117,8 +136,9 @@ async function findSeatsOverPlan({ platformId, seatLimit, addedSince, billingEnf
     if (seatsOver <= 0) {
         return null
     }
-    const newestAdded = await excludeEmbeddedUsers(activeUsers({ platformId, entityManager }))
+    const addedDuringTrial = excludeEmbeddedUsers(activeUsers({ platformId, entityManager }))
         .andWhere('user.created >= :addedSince', { addedSince: dayjs(addedSince).toISOString() })
+    const newestAdded = await (isNil(addedBefore) ? addedDuringTrial : addedDuringTrial.andWhere('user.created <= :addedBefore', { addedBefore: dayjs(addedBefore).toISOString() }))
         .andWhere(USER_IS_NOT_THE_PLATFORM_OWNER)
         .orderBy('user.created', 'DESC')
         .limit(seatsOver)
@@ -156,6 +176,7 @@ type StartOnTrialEndParams = {
     platformId: string
     seatLimit: number | null
     trialStartedAt: string | Date | null
+    trialEndedAt: string | Date | null
     billingEnforced: boolean
 }
 
@@ -166,7 +187,11 @@ type SettleParams = {
 
 type GetParams = {
     plan: PlatformPlan
-    billingEnforced: boolean
+}
+
+type FindDueSeatGracesParams = {
+    now: string
+    excludedPlatformIds: string[]
 }
 
 type SettleSeatGraceParams = {
@@ -184,6 +209,7 @@ type FindSeatsOverPlanParams = {
     platformId: string
     seatLimit: number | null | undefined
     addedSince: string | Date | null | undefined
+    addedBefore: string | Date | null | undefined
     billingEnforced: boolean
     log: FastifyBaseLogger
     entityManager?: EntityManager
@@ -195,3 +221,8 @@ type ActiveUsersParams = {
 }
 
 export const TRIAL_SEAT_GRACE_SWEEP_CRON = `${SWEEP_MINUTE_UTC} ${SWEEP_HOUR_UTC} * * *`
+
+export const TRIAL_SEAT_GRACE_SWEEP_RETRY: JobsOptions = {
+    attempts: 6,
+    backoff: { type: 'fixed', delay: 60 * 60 * 1000 },
+}

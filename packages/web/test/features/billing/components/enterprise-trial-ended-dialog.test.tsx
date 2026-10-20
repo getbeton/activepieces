@@ -13,6 +13,7 @@ import type { SeatGrace } from '@/features/billing/hooks/enterprise-trial-hooks'
 
 import { icuI18n } from '../../../i18n/icu-i18n';
 
+const refreshPlan = vi.hoisted(() => vi.fn());
 const state = vi.hoisted<TestState>(() => ({
   endsAt: new Date(),
   grace: null,
@@ -37,6 +38,7 @@ vi.mock('@/features/billing/hooks/enterprise-trial-hooks', () => ({
       basePlanName: 'Team',
     }),
     useSeatGrace: () => state.grace,
+    useRefreshPlanAfterTrialEnd: refreshPlan,
   },
 }));
 
@@ -82,6 +84,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   window.localStorage.clear();
+  refreshPlan.mockReset();
   state.grace = null;
   state.userIds = null;
   billingDialogHooks.useTrialSeatDialogStore.setState({ isOpen: false });
@@ -94,6 +97,15 @@ describe('seat check after the trial', () => {
     expect(screen.queryByText('seat check')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Explore plans' }));
     expect(screen.getByText('seat check')).toBeDefined();
+  });
+
+  it('refreshes the plan while the ended dialog is open, so its seat line can show', () => {
+    state.endsAt = dayjs().subtract(2, 'day').toDate();
+    render(<EnterpriseTrialEndedDialog />);
+    expect(
+      screen.getByText('Thanks for trying the Enterprise plan'),
+    ).toBeDefined();
+    expect(refreshPlan).toHaveBeenCalled();
   });
 
   it('still runs after the ended dialog stops showing', () => {

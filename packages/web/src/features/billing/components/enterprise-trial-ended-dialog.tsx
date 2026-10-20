@@ -32,6 +32,7 @@ export function EnterpriseTrialEndedDialog() {
   const { platform } = platformHooks.useCurrentPlatform();
   const trial = enterpriseTrialHooks.useTrial();
   const grace = enterpriseTrialHooks.useSeatGrace();
+  enterpriseTrialHooks.useRefreshPlanAfterTrialEnd();
   const { openDialog: openSeatDialog } =
     billingDialogHooks.useTrialSeatDialogStore();
   const upgradeClick = useUpgradeClick();

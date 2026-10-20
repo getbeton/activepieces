@@ -171,7 +171,7 @@ async function getBillingInformation(log: FastifyBaseLogger, platformId: string)
         billingUnavailable,
         includedSeats,
         additionalSeats,
-        seatGrace: await trialSeatGrace(log).get({ plan: platformPlan, billingEnforced }),
+        seatGrace: await trialSeatGrace(log).get({ plan: platformPlan }),
     }
 }
 

@@ -182,7 +182,7 @@ export const autumnUtils = {
         const trialEnded = !isNil(trialEndedAt)
         const billingEnforced = autumnUtils.billingEnforcedFromGrantedFeatureIds(entitlements.grantedFeatureIds)
         const seatGrace = trialEnded
-            ? await trialSeatGrace(log).startOnTrialEnd({ platformId, seatLimit: projection.usersLimit, trialStartedAt: previousPlan?.enterpriseTrialStartedAt ?? null, billingEnforced })
+            ? await trialSeatGrace(log).startOnTrialEnd({ platformId, seatLimit: projection.usersLimit, trialStartedAt: previousPlan?.enterpriseTrialStartedAt ?? null, trialEndedAt, billingEnforced })
             : {}
         await platformPlanService(log).update({
             platformId,

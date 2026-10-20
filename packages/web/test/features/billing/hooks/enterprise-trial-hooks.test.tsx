@@ -20,6 +20,7 @@ let seatGraceEndsAt: string | null = null;
 let usersLimit: number | null = 5;
 let status: EnterpriseTrialStatus;
 const startEnterpriseTrial = vi.fn();
+const refreshSubscriptionInfo = vi.fn();
 
 vi.mock('i18next', () => ({ t: (key: string) => key }));
 
@@ -56,6 +57,7 @@ vi.mock('@/features/billing/api/billing-plans-api', () => ({
   platformBillingApi: {
     getEnterpriseTrial: async () => status,
     startEnterpriseTrial: () => startEnterpriseTrial(),
+    refreshSubscriptionInfo: () => refreshSubscriptionInfo(),
   },
 }));
 
@@ -86,6 +88,7 @@ beforeEach(() => {
   seatGraceEndsAt = null;
   usersLimit = 5;
   status = activeStatus(dayjs().add(3, 'day').toDate());
+  refreshSubscriptionInfo.mockReset().mockResolvedValue(undefined);
 });
 
 describe('useTrial', () => {
@@ -219,5 +222,42 @@ describe('starting the trial fails', () => {
     );
     expect(keys).toContain(JSON.stringify(enterpriseTrialKey('platform-1')));
     expect(keys).toContain(JSON.stringify(['platform']));
+  });
+});
+
+describe('plan refresh after the trial', () => {
+  const endedStatus = (): EnterpriseTrialStatus => ({
+    state: 'ended',
+    startedAt: null,
+    endsAt: dayjs().subtract(1, 'hour').toISOString(),
+    extended: false,
+  });
+
+  it('runs once when the trial ended but the plan still carries its dates', async () => {
+    status = endedStatus();
+    planTrialEndsAt = dayjs().subtract(1, 'hour').toISOString();
+
+    renderHook(() => enterpriseTrialHooks.useRefreshPlanAfterTrialEnd(), {
+      wrapper: queryWrapper(),
+    });
+
+    await waitFor(() =>
+      expect(refreshSubscriptionInfo).toHaveBeenCalledTimes(1),
+    );
+  });
+
+  it('stays quiet once the plan no longer carries the trial', async () => {
+    status = endedStatus();
+
+    const { result } = renderHook(
+      () => {
+        enterpriseTrialHooks.useRefreshPlanAfterTrialEnd();
+        return enterpriseTrialHooks.useStatus();
+      },
+      { wrapper: queryWrapper() },
+    );
+
+    await waitFor(() => expect(result.current.data?.state).toBe('ended'));
+    expect(refreshSubscriptionInfo).not.toHaveBeenCalled();
   });
 });

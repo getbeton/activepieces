@@ -27,6 +27,7 @@ import {
   enterpriseTrialTime,
   TRIAL_DAYS,
 } from '../utils/enterprise-trial-time';
+import { trialSeatEnforcement } from '../utils/trial-seat-enforcement';
 
 import { refreshBillingCaches } from './billing-hooks';
 
@@ -116,6 +117,25 @@ export const enterpriseTrialHooks = {
       isPlatformAdmin,
       basePlanName,
     };
+  },
+  useRefreshPlanAfterTrialEnd: (): void => {
+    const queryClient = useQueryClient();
+    const { platform } = platformHooks.useCurrentPlatform();
+    const { data: status } = enterpriseTrialHooks.useStatus();
+    useQuery({
+      queryKey: ['enterprise-trial-plan-refresh', platform.id],
+      queryFn: async () => {
+        await platformBillingApi.refreshSubscriptionInfo();
+        refreshBillingCaches(queryClient);
+        return true;
+      },
+      enabled: trialSeatEnforcement.needsPlanRefresh({
+        trialState: status?.state,
+        planTrialEndsAt: platform.plan.enterpriseTrialEndsAt,
+      }),
+      staleTime: Infinity,
+      retry: false,
+    });
   },
   useSeatGrace: (): SeatGrace | null => {
     const { platform } = platformHooks.useCurrentPlatform();

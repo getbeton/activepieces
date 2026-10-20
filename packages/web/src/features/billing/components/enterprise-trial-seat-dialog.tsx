@@ -1,6 +1,6 @@
 import { isNil, tryCatch } from '@activepieces/core-utils';
 import { PlatformAdminSurface } from '@activepieces/shared';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { t } from 'i18next';
 
@@ -14,7 +14,6 @@ import { billingDialogHooks } from '../hooks/billing-dialog-hooks';
 import { billingQueries, refreshBillingCaches } from '../hooks/billing-hooks';
 import { enterpriseTrialHooks } from '../hooks/enterprise-trial-hooks';
 import { useUpgradeClick } from '../hooks/use-upgrade-click';
-import { trialSeatEnforcement } from '../utils/trial-seat-enforcement';
 
 import { DeactivateUsersDialog } from './feature-usage/deactivate-users-dialog';
 
@@ -23,28 +22,12 @@ export function EnterpriseTrialSeatDialog() {
   const { platform } = platformHooks.useCurrentPlatform();
   const isPlatformAdmin = useIsPlatformAdmin();
   const grace = enterpriseTrialHooks.useSeatGrace();
-  const { data: status } = enterpriseTrialHooks.useStatus();
   const { data: info } = billingQueries.usePlatformSubscription(
     platform.id,
     isPlatformAdmin && !isNil(grace),
   );
   const { isOpen, closeDialog } = billingDialogHooks.useTrialSeatDialogStore();
   const upgradeClick = useUpgradeClick();
-
-  useQuery({
-    queryKey: ['enterprise-trial-plan-refresh', platform.id],
-    queryFn: async () => {
-      await platformBillingApi.refreshSubscriptionInfo();
-      refreshBillingCaches(queryClient);
-      return true;
-    },
-    enabled: trialSeatEnforcement.needsPlanRefresh({
-      trialState: status?.state,
-      planTrialEndsAt: platform.plan.enterpriseTrialEndsAt,
-    }),
-    staleTime: Infinity,
-    retry: false,
-  });
 
   const settleGrace = async () => {
     await tryCatch(() => platformBillingApi.refreshSubscriptionInfo());
