@@ -1,4 +1,10 @@
-import { githubDark, githubLight } from '@uiw/codemirror-theme-github';
+import { githubDarkInit, githubLight } from '@uiw/codemirror-theme-github';
+
+// GitHub's dark editor paints its own blue-black (#0d1117); let the
+// surrounding neutral surface show through instead.
+const githubDark = githubDarkInit({
+  settings: { background: 'transparent', gutterBackground: 'transparent' },
+});
 
 const codeMirror = (resolvedTheme: string) =>
   resolvedTheme === 'dark' ? githubDark : githubLight;
