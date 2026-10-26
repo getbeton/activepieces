@@ -13,7 +13,7 @@ export const sellToState = createPiece({
     'Government tenders and contract awards from official procurement sources in 60+ countries: open tenders, buyers and suppliers.',
   auth: sellToStateAuth,
   minimumSupportedRelease: '0.36.1',
-  logoUrl: 'https://cdn.activepieces.com/pieces/sell-to-state.png',
+  logoUrl: 'https://raw.githubusercontent.com/getbeton/selltostate-skills/main/assets/icon.png',
   categories: [PieceCategory.SALES_AND_CRM],
   authors: ['nadyyym'],
   actions: [

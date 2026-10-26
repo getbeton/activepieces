@@ -2,6 +2,10 @@
 
 Government tenders and contract awards from official procurement sources in 60+ countries, from [Sell to State](https://selltostate.com).
 
+## Install
+
+Self-hosted Activepieces, or a platform admin on Activepieces Cloud: Settings, My Pieces, Install Piece. Enter the package name `@selltostate/piece-sell-to-state`.
+
 ## Auth
 
 API key from [app.selltostate.com/account/keys](https://app.selltostate.com/account/keys). Data needs an active plan. The key goes in the `x-api-key` header.

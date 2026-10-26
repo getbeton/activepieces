@@ -1,6 +1,21 @@
 {
-  "name": "@activepieces/piece-sell-to-state",
-  "version": "0.0.1",
+  "name": "@selltostate/piece-sell-to-state",
+  "version": "0.1.0",
+  "description": "Activepieces piece for selltostate.com: search government tenders, buyers and suppliers in 60+ countries, and trigger a flow on new tenders.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/getbeton/activepieces.git",
+    "directory": "packages/pieces/community/sell-to-state"
+  },
+  "homepage": "https://www.selltostate.com/integrations/",
+  "keywords": [
+    "activepieces",
+    "activepieces-piece",
+    "government-contracts",
+    "tenders",
+    "public-procurement"
+  ],
   "type": "commonjs",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",

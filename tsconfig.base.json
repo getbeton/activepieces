@@ -1212,7 +1212,7 @@
       "@activepieces/piece-segment": [
         "packages/pieces/community/segment/src/index.ts"
       ],
-      "@activepieces/piece-sell-to-state": [
+      "@selltostate/piece-sell-to-state": [
         "packages/pieces/community/sell-to-state/src/index.ts"
       ],
       "@activepieces/piece-sender": [
